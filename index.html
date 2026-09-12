@@ -1,0 +1,1753 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>3D Minecraft Web Edition (MVP)</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #111;
+      font-family: 'Minecraft', 'Courier New', monospace, sans-serif;
+    }
+    #canvas-container {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      left: 0;
+      top: 0;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    /* レティクル (クロスヘア) */
+    #crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 20px;
+      height: 20px;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 10;
+    }
+    #crosshair::before, #crosshair::after {
+      content: '';
+      position: absolute;
+      background: rgba(255, 255, 255, 0.85);
+      box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+    }
+    #crosshair::before {
+      top: 9px;
+      left: 0;
+      width: 20px;
+      height: 2px;
+    }
+    #crosshair::after {
+      top: 0;
+      left: 9px;
+      width: 2px;
+      height: 20px;
+    }
+
+    /* ホットバー (UI) */
+    #hotbar-container {
+      position: absolute;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      z-index: 20;
+      pointer-events: none;
+    }
+    #selected-name {
+      color: #fff;
+      font-size: 16px;
+      text-shadow: 2px 2px 0 #000, -1px -1px 0 #000;
+      font-weight: bold;
+      letter-spacing: 1px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      background: rgba(0, 0, 0, 0.4);
+      padding: 4px 12px;
+      border-radius: 4px;
+    }
+    #hotbar {
+      display: flex;
+      background: rgba(20, 20, 20, 0.75);
+      border: 3px solid #555;
+      border-radius: 6px;
+      padding: 3px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+      pointer-events: auto;
+    }
+    .slot {
+      width: 46px;
+      height: 46px;
+      border: 2px solid #333;
+      margin: 2px;
+      background: rgba(0, 0, 0, 0.5);
+      position: relative;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      transition: transform 0.1s, border-color 0.1s;
+    }
+    .slot:hover {
+      border-color: #aaa;
+    }
+    .slot.active {
+      border: 3px solid #fff;
+      background: rgba(255, 255, 255, 0.2);
+      transform: scale(1.12);
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+      z-index: 1;
+    }
+    .slot canvas {
+      width: 34px;
+      height: 34px;
+      image-rendering: pixelated;
+    }
+    .slot .slot-num {
+      position: absolute;
+      top: 2px;
+      left: 4px;
+      font-size: 11px;
+      color: #ccc;
+      font-weight: bold;
+      text-shadow: 1px 1px 0 #000;
+    }
+
+    /* デバッグ・ステータス表示 */
+    #debug-hud {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      color: #eee;
+      font-size: 13px;
+      line-height: 1.5;
+      text-shadow: 1px 1px 1px #000;
+      background: rgba(0, 0, 0, 0.45);
+      padding: 8px 12px;
+      border-radius: 4px;
+      z-index: 20;
+      pointer-events: none;
+    }
+    #hud-badge {
+      display: inline-block;
+      background: #39b54a;
+      color: #fff;
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      margin-left: 6px;
+      font-weight: bold;
+    }
+
+    /* スタート / ポーズ画面 */
+    #overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      color: #fff;
+      text-align: center;
+      padding: 20px;
+    }
+    #overlay h1 {
+      font-size: 38px;
+      color: #ffde59;
+      text-shadow: 3px 3px 0 #3b3004, -2px -2px 0 #000;
+      margin-bottom: 8px;
+      letter-spacing: 2px;
+    }
+    #overlay p.subtitle {
+      font-size: 15px;
+      color: #bbb;
+      margin-bottom: 24px;
+    }
+    .btn {
+      background: #4caf50;
+      border: 2px solid #2e7d32;
+      color: #fff;
+      font-size: 18px;
+      font-weight: bold;
+      padding: 12px 32px;
+      border-radius: 6px;
+      cursor: pointer;
+      box-shadow: 0 4px 0 #1b5e20;
+      transition: all 0.1s;
+      margin-bottom: 20px;
+      font-family: inherit;
+    }
+    .btn:hover {
+      background: #54be58;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 0 #1b5e20;
+    }
+    .btn:active {
+      transform: translateY(2px);
+      box-shadow: 0 2px 0 #1b5e20;
+    }
+    .instructions {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      padding: 16px 24px;
+      max-width: 520px;
+      font-size: 14px;
+      line-height: 1.8;
+      text-align: left;
+    }
+    .instructions span.key {
+      background: #333;
+      border: 1px solid #777;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-weight: bold;
+      color: #ffeb3b;
+      margin: 0 2px;
+    }
+    .controls-row {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 4px 0;
+    }
+    .controls-row:last-child {
+      border-bottom: none;
+    }
+
+    /* モバイル向けコントロール (タッチ端末用) */
+    #mobile-controls {
+      display: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 30;
+    }
+    .touch-btn {
+      position: absolute;
+      pointer-events: auto;
+      background: rgba(0, 0, 0, 0.5);
+      border: 2px solid rgba(255, 255, 255, 0.5);
+      color: white;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: bold;
+      touch-action: none;
+    }
+    .touch-btn:active {
+      background: rgba(255, 255, 255, 0.4);
+    }
+    #touch-jump { bottom: 85px; right: 25px; width: 68px; height: 68px; font-size: 16px; }
+    #touch-break { bottom: 165px; right: 25px; background: rgba(200, 50, 50, 0.6); }
+    #touch-place { bottom: 165px; right: 95px; background: rgba(50, 150, 200, 0.6); }
+    #touch-fly { bottom: 85px; right: 105px; width: 50px; height: 50px; font-size: 12px; }
+    #touch-stick {
+      position: absolute;
+      bottom: 75px;
+      left: 30px;
+      width: 110px;
+      height: 110px;
+      border: 2px dashed rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      pointer-events: auto;
+    }
+    #touch-knob {
+      position: absolute;
+      top: 35px;
+      left: 35px;
+      width: 40px;
+      height: 40px;
+      background: rgba(255, 255, 255, 0.6);
+      border-radius: 50%;
+    }
+  </style>
+  <!-- Three.js (r128) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+  <div id="canvas-container"></div>
+  <div id="crosshair"></div>
+
+  <!-- デバッグHUD -->
+  <div id="debug-hud">
+    <div><strong>3D Minecraft MVP</strong><span id="hud-badge">FLY: OFF</span></div>
+    <div id="fps-val">FPS: 60</div>
+    <div id="pos-val">XYZ: 0.0 / 0.0 / 0.0</div>
+    <div id="look-val">Looking: South</div>
+    <div id="block-count-val">Blocks: 0</div>
+  </div>
+
+  <!-- ホットバー -->
+  <div id="hotbar-container">
+    <div id="selected-name">Grass Block</div>
+    <div id="hotbar"></div>
+  </div>
+
+  <!-- スタート/ポーズ用オーバーレイ -->
+  <div id="overlay">
+    <h1>MINECRAFT 3D</h1>
+    <p class="subtitle">HTML5 / WebGL / Three.js MVP Edition</p>
+    <button class="btn" id="start-btn">ゲームをプレイ (Click to Play)</button>
+    <div class="instructions">
+      <div class="controls-row"><span>移動</span><span><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span></span></div>
+      <div class="controls-row"><span>視点移動</span><span><span class="key">マウス</span> (画面中央)</span></div>
+      <div class="controls-row"><span>ジャンプ</span><span><span class="key">Space</span></span></div>
+      <div class="controls-row"><span>ダッシュ / 急降下</span><span><span class="key">Shift</span></span></div>
+      <div class="controls-row"><span>ブロック破壊</span><span><span class="key">左クリック</span></span></div>
+      <div class="controls-row"><span>ブロック設置</span><span><span class="key">右クリック</span></span></div>
+      <div class="controls-row"><span>ブロック切替</span><span><span class="key">1</span>〜<span class="key">9</span> / <span class="key">マウスホイール</span></span></div>
+      <div class="controls-row"><span>飛行モード切替</span><span><span class="key">F</span></span></div>
+      <div class="controls-row"><span>昼夜・時刻切替</span><span><span class="key">T</span></span></div>
+      <div class="controls-row"><span>一時停止 / 解除</span><span><span class="key">Esc</span></span></div>
+    </div>
+  </div>
+
+  <!-- モバイル用UI -->
+  <div id="mobile-controls">
+    <div id="touch-stick"><div id="touch-knob"></div></div>
+    <div class="touch-btn" id="touch-jump">JUMP</div>
+    <div class="touch-btn" id="touch-break">掘る</div>
+    <div class="touch-btn" id="touch-place">置く</div>
+    <div class="touch-btn" id="touch-fly">FLY</div>
+  </div>
+
+<script>
+/* =========================================================================
+   1. 定数・ブロック定義 & テクスチャアトラス生成
+   ========================================================================= */
+const BLOCK = {
+  AIR: 0,
+  GRASS: 1,
+  DIRT: 2,
+  STONE: 3,
+  COBBLESTONE: 4,
+  WOOD: 5,
+  LEAVES: 6,
+  PLANKS: 7,
+  BRICKS: 8,
+  GLASS: 9,
+  SAND: 10,
+  TNT: 11,
+  GLOWSTONE: 12,
+  BOOKSHELF: 13
+};
+
+const BLOCK_INFO = [
+  { id: 0, name: 'Air', transparent: true },
+  { id: 1, name: '草ブロック (Grass)', top: 0, side: 1, bottom: 2 },
+  { id: 2, name: '土ブロック (Dirt)', all: 2 },
+  { id: 3, name: '石ブロック (Stone)', all: 3 },
+  { id: 4, name: '丸石 (Cobblestone)', all: 4 },
+  { id: 5, name: '原木 (Oak Log)', side: 5, top: 6, bottom: 6 },
+  { id: 6, name: '木の葉 (Oak Leaves)', all: 7, transparent: true, alphaTest: 0.1 },
+  { id: 7, name: '木材 (Oak Planks)', all: 8 },
+  { id: 8, name: 'レンガ (Bricks)', all: 9 },
+  { id: 9, name: 'ガラス (Glass)', all: 10, transparent: true, opacity: 0.65 },
+  { id: 10, name: '砂 (Sand)', all: 11 },
+  { id: 11, name: 'TNT', side: 12, top: 13, bottom: 13 },
+  { id: 12, name: 'グロウストーン (Glowstone)', all: 14, emissive: true },
+  { id: 13, name: '本棚 (Bookshelf)', side: 15, top: 8, bottom: 8 }
+];
+
+// ホットバーに登録するブロックID (9スロット)
+const HOTBAR_BLOCKS = [
+  BLOCK.GRASS,
+  BLOCK.DIRT,
+  BLOCK.STONE,
+  BLOCK.COBBLESTONE,
+  BLOCK.WOOD,
+  BLOCK.LEAVES,
+  BLOCK.PLANKS,
+  BLOCK.BRICKS,
+  BLOCK.GLASS,
+  BLOCK.SAND,
+  BLOCK.TNT,
+  BLOCK.GLOWSTONE,
+  BLOCK.BOOKSHELF
+];
+
+/* 4x4 テクスチャアトラス (64x64ピクセル, 各タイル16x16) のプロシージャル描画 */
+const ATLAS_SIZE = 64;
+const TILE_SIZE = 16;
+const atlasCanvas = document.createElement('canvas');
+atlasCanvas.width = ATLAS_SIZE;
+atlasCanvas.height = ATLAS_SIZE;
+const ctx = atlasCanvas.getContext('2d');
+
+function prng(x, y, seed = 42) {
+  const n = Math.sin(x * 12.9898 + y * 78.233 + seed) * 43758.5453;
+  return n - Math.floor(n);
+}
+
+function drawProceduralTextures() {
+  const imgData = ctx.createImageData(ATLAS_SIZE, ATLAS_SIZE);
+  const data = imgData.data;
+
+  function setPixel(x, y, r, g, b, a = 255) {
+    if (x < 0 || x >= ATLAS_SIZE || y < 0 || y >= ATLAS_SIZE) return;
+    const idx = (y * ATLAS_SIZE + x) * 4;
+    data[idx] = r;
+    data[idx + 1] = g;
+    data[idx + 2] = b;
+    data[idx + 3] = a;
+  }
+
+  for (let slot = 0; slot < 16; slot++) {
+    const ox = (slot % 4) * TILE_SIZE;
+    const oy = Math.floor(slot / 4) * TILE_SIZE;
+
+    for (let py = 0; py < TILE_SIZE; py++) {
+      for (let px = 0; px < TILE_SIZE; px++) {
+        const x = ox + px;
+        const y = oy + py;
+        const r = prng(px, py, slot * 13);
+        const r2 = prng(px, py, slot * 37);
+
+        switch (slot) {
+          case 0: { // Grass Top (鮮やかな草の上面)
+            const g = 135 + Math.floor(r * 45);
+            setPixel(x, y, 65 + Math.floor(r * 25), g, 35 + Math.floor(r * 20));
+            break;
+          }
+          case 1: { // Grass Side (側面: 上部が草、下部が土)
+            const grassEdge = 3 + Math.floor(prng(px, 0, 99) * 3);
+            if (py <= grassEdge) {
+              const g = 130 + Math.floor(r * 40);
+              setPixel(x, y, 60 + Math.floor(r * 25), g, 30 + Math.floor(r * 20));
+            } else {
+              const d = 100 + Math.floor(r * 30);
+              setPixel(x, y, 134 + Math.floor(r * 20), d, 65 + Math.floor(r * 15));
+            }
+            break;
+          }
+          case 2: { // Dirt (土)
+            const d = 85 + Math.floor(r * 35);
+            setPixel(x, y, 125 + Math.floor(r * 25), d, 55 + Math.floor(r * 20));
+            break;
+          }
+          case 3: { // Stone (石)
+            const s = 110 + Math.floor(r * 35);
+            setPixel(x, y, s, s, s);
+            break;
+          }
+          case 4: { // Cobblestone (丸石)
+            const isBorder = (px === 0 || px === 7 || px === 15 || py === 0 || py === 7 || py === 15 || r > 0.85);
+            const base = isBorder ? 70 + Math.floor(r * 20) : 120 + Math.floor(r * 35);
+            setPixel(x, y, base, base, base);
+            break;
+          }
+          case 5: { // Oak Log Side (原木側面・縦筋)
+            const ring = Math.floor(r2 * 20);
+            const bark = (px % 4 === 0) ? 65 : 100 + ring;
+            setPixel(x, y, bark, Math.floor(bark * 0.75), Math.floor(bark * 0.45));
+            break;
+          }
+          case 6: { // Oak Log Top (原木端面・年輪)
+            const dist = Math.sqrt((px - 7.5)**2 + (py - 7.5)**2);
+            const isBark = dist >= 6.2;
+            if (isBark) {
+              setPixel(x, y, 70, 50, 30);
+            } else {
+              const ring = Math.floor(dist * 2) % 2 === 0 ? 150 : 175;
+              setPixel(x, y, ring + Math.floor(r*15), ring - 35, 90);
+            }
+            break;
+          }
+          case 7: { // Leaves (葉)
+            if (r > 0.82) {
+              setPixel(x, y, 0, 0, 0, 0); // 穴あき
+            } else {
+              const g = 110 + Math.floor(r * 60);
+              setPixel(x, y, 35 + Math.floor(r * 30), g, 20 + Math.floor(r * 20), 235);
+            }
+            break;
+          }
+          case 8: { // Planks (木材・横板)
+            const isLine = py % 4 === 0;
+            if (isLine) {
+              setPixel(x, y, 110, 80, 50);
+            } else {
+              const p = 160 + Math.floor(r * 25);
+              setPixel(x, y, p, p - 35, 75);
+            }
+            break;
+          }
+          case 9: { // Bricks (レンガ)
+            const row = Math.floor(py / 4);
+            const shift = (row % 2) * 4;
+            const isMortar = (py % 4 === 0) || ((px + shift) % 8 === 0);
+            if (isMortar) {
+              setPixel(x, y, 200, 195, 190);
+            } else {
+              const br = 145 + Math.floor(r * 30);
+              setPixel(x, y, br, 60 + Math.floor(r * 20), 45 + Math.floor(r * 15));
+            }
+            break;
+          }
+          case 10: { // Glass (ガラス)
+            const isFrame = (px === 0 || px === 15 || py === 0 || py === 15);
+            const isStreak = (px === py && px >= 2 && px <= 5) || (px === py - 4 && px >= 7 && px <= 9);
+            if (isFrame) {
+              setPixel(x, y, 220, 235, 245, 200);
+            } else if (isStreak) {
+              setPixel(x, y, 255, 255, 255, 180);
+            } else {
+              setPixel(x, y, 210, 230, 240, 40);
+            }
+            break;
+          }
+          case 11: { // Sand (砂)
+            const s = 215 + Math.floor(r * 25);
+            setPixel(x, y, s, s - 20, 140 + Math.floor(r * 20));
+            break;
+          }
+          case 12: { // TNT Side
+            if (py >= 5 && py <= 10) {
+              // 白帯
+              setPixel(x, y, 240, 240, 240);
+              // "TNT" ドット文字
+              const isT1 = (px >= 2 && px <= 4 && py === 6) || (px === 3 && py >= 6 && py <= 9);
+              const isN = (px === 6 && py >= 6 && py <= 9) || (px === 9 && py >= 6 && py <= 9) || (px === 7 && py === 7) || (px === 8 && py === 8);
+              const isT2 = (px >= 11 && px <= 13 && py === 6) || (px === 12 && py >= 6 && py <= 9);
+              if (isT1 || isN || isT2) setPixel(x, y, 20, 20, 20);
+            } else {
+              setPixel(x, y, 195 + Math.floor(r * 30), 30, 30);
+            }
+            break;
+          }
+          case 13: { // TNT Top
+            const dist = Math.sqrt((px - 7.5)**2 + (py - 7.5)**2);
+            if (dist < 3) {
+              setPixel(x, y, 40, 40, 40);
+            } else {
+              setPixel(x, y, 180 + Math.floor(r * 30), 25, 25);
+            }
+            break;
+          }
+          case 14: { // Glowstone (発光石)
+            const g = 200 + Math.floor(r * 55);
+            setPixel(x, y, g, g - 40, 80 + Math.floor(r * 40));
+            break;
+          }
+          case 15: { // Bookshelf (本棚)
+            const isShelf = (py === 0 || py === 7 || py === 8 || py === 15);
+            if (isShelf) {
+              setPixel(x, y, 140, 100, 60);
+            } else {
+              const bookColor = Math.floor(prng(px, 0, 77) * 4);
+              if (px % 3 === 0) {
+                setPixel(x, y, 50, 40, 30);
+              } else if (bookColor === 0) {
+                setPixel(x, y, 170, 40, 40);
+              } else if (bookColor === 1) {
+                setPixel(x, y, 40, 100, 180);
+              } else if (bookColor === 2) {
+                setPixel(x, y, 40, 150, 60);
+              } else {
+                setPixel(x, y, 180, 140, 50);
+              }
+            }
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+}
+drawProceduralTextures();
+
+// Three.js 用テクスチャ作成 (ピクセルくっきり NearestFilter)
+const atlasTexture = new THREE.CanvasTexture(atlasCanvas);
+atlasTexture.magFilter = THREE.NearestFilter;
+atlasTexture.minFilter = THREE.NearestFilter;
+
+/* 4x4アトラス内の各面UV取得関数 */
+function getUVs(slotIndex) {
+  const col = slotIndex % 4;
+  const row = Math.floor(slotIndex / 4);
+  const u0 = col / 4;
+  const u1 = (col + 1) / 4;
+  const v1 = 1 - (row / 4);
+  const v0 = 1 - ((row + 1) / 4);
+  return { u0, v0, u1, v1 };
+}
+
+/* =========================================================================
+   2. Web Audio API による完全内蔵サウンドシステム
+   ========================================================================= */
+class SoundEngine {
+  constructor() {
+    this.ctx = null;
+    this.enabled = true;
+  }
+  init() {
+    if (!this.ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      this.ctx = new AudioCtx();
+    }
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+  playBreak(blockId) {
+    if (!this.enabled || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    // ノイズ生成
+    const bufferSize = this.ctx.sampleRate * 0.12;
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(blockId === BLOCK.STONE ? 400 : 700, now);
+    filter.Q.setValueAtTime(2, now);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.4, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.11);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+    noise.start(now);
+  }
+  playPlace() {
+    if (!this.enabled || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(280, now);
+    osc.frequency.exponentialRampToValueAtTime(140, now + 0.08);
+
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.09);
+  }
+  playStep() {
+    if (!this.enabled || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(120, now);
+    osc.frequency.exponentialRampToValueAtTime(50, now + 0.05);
+
+    gain.gain.setValueAtTime(0.18, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.06);
+  }
+  playJump() {
+    if (!this.enabled || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(180, now);
+    osc.frequency.exponentialRampToValueAtTime(320, now + 0.1);
+
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.11);
+  }
+}
+const sound = new SoundEngine();
+
+/* =========================================================================
+   3. ワールド管理 & ボクセル面カリング・メッシュビルダー
+   ========================================================================= */
+const WORLD_X = 40;
+const WORLD_Z = 40;
+const WORLD_Y = 26;
+const HALF_X = Math.floor(WORLD_X / 2);
+const HALF_Z = Math.floor(WORLD_Z / 2);
+
+class VoxelWorld {
+  constructor() {
+    this.blocks = new Uint8Array(WORLD_X * WORLD_Y * WORLD_Z);
+  }
+  getIndex(x, y, z) {
+    const gx = x + HALF_X;
+    const gy = y;
+    const gz = z + HALF_Z;
+    if (gx < 0 || gx >= WORLD_X || gy < 0 || gy >= WORLD_Y || gz < 0 || gz >= WORLD_Z) {
+      return -1;
+    }
+    return (gy * WORLD_Z + gz) * WORLD_X + gx;
+  }
+  getBlock(x, y, z) {
+    const idx = this.getIndex(x, y, z);
+    if (idx === -1) return BLOCK.AIR;
+    return this.blocks[idx];
+  }
+  setBlock(x, y, z, id) {
+    const idx = this.getIndex(x, y, z);
+    if (idx === -1) return false;
+    this.blocks[idx] = id;
+    return true;
+  }
+  isSolid(x, y, z) {
+    const id = this.getBlock(x, y, z);
+    return id !== BLOCK.AIR && id !== BLOCK.GLASS;
+  }
+  isTransparent(id) {
+    if (id === BLOCK.AIR) return true;
+    const info = BLOCK_INFO[id];
+    return info && info.transparent;
+  }
+}
+
+const world = new VoxelWorld();
+
+/* 自然な地形・山・木・建物の生成 */
+function generateWorld() {
+  // 1. 地形生成
+  for (let x = -HALF_X; x < HALF_X; x++) {
+    for (let z = -HALF_Z; z < HALF_Z; z++) {
+      // 緩やかな丘陵
+      const h1 = Math.sin(x * 0.12) * Math.cos(z * 0.12) * 3.5;
+      const h2 = Math.sin(x * 0.25 + z * 0.15) * 1.5;
+      const surfaceY = Math.floor(10 + h1 + h2);
+
+      for (let y = 0; y < WORLD_Y; y++) {
+        if (y === 0) {
+          world.setBlock(x, y, z, BLOCK.STONE); // 岩盤層
+        } else if (y < surfaceY - 3) {
+          world.setBlock(x, y, z, BLOCK.STONE);
+        } else if (y < surfaceY) {
+          world.setBlock(x, y, z, BLOCK.DIRT);
+        } else if (y === surfaceY) {
+          world.setBlock(x, y, z, BLOCK.GRASS);
+        } else {
+          world.setBlock(x, y, z, BLOCK.AIR);
+        }
+      }
+    }
+  }
+
+  // 2. 木の生成 (Oak Trees)
+  for (let x = -HALF_X + 4; x < HALF_X - 4; x += 5) {
+    for (let z = -HALF_Z + 4; z < HALF_Z - 4; z += 5) {
+      if (Math.abs(x) < 8 && Math.abs(z) < 8) continue; // スポーン地点と拠点の周辺はあける
+      if (prng(x, z, 777) < 0.45) {
+        // 地表を探索
+        let groundY = 0;
+        for (let y = WORLD_Y - 1; y >= 0; y--) {
+          if (world.getBlock(x, y, z) === BLOCK.GRASS) {
+            groundY = y;
+            break;
+          }
+        }
+        if (groundY > 0 && groundY < WORLD_Y - 8) {
+          const treeH = 4 + Math.floor(prng(x, z, 888) * 2);
+          // 幹
+          for (let ty = 1; ty <= treeH; ty++) {
+            world.setBlock(x, groundY + ty, z, BLOCK.WOOD);
+          }
+          // 葉のクラウン
+          for (let ly = -2; ly <= 1; ly++) {
+            const rad = ly <= -1 ? 2 : 1;
+            for (let lx = -rad; lx <= rad; lx++) {
+              for (let lz = -rad; lz <= rad; lz++) {
+                if (Math.abs(lx) === rad && Math.abs(lz) === rad && ly === 1) continue;
+                const cur = world.getBlock(x + lx, groundY + treeH + ly, z + lz);
+                if (cur === BLOCK.AIR) {
+                  world.setBlock(x + lx, groundY + treeH + ly, z + lz, BLOCK.LEAVES);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 3. スポーン地点の小さなクラフトハウス (拠点)
+  const hx = 0, hz = 0;
+  let houseGround = 0;
+  for (let y = WORLD_Y - 1; y >= 0; y--) {
+    if (world.getBlock(hx, y, hz) === BLOCK.GRASS) {
+      houseGround = y;
+      break;
+    }
+  }
+  // 床と整地
+  for (let x = -3; x <= 3; x++) {
+    for (let z = -3; z <= 3; z++) {
+      world.setBlock(x, houseGround, z, BLOCK.PLANKS);
+      for (let y = houseGround + 1; y <= houseGround + 5; y++) {
+        world.setBlock(x, y, z, BLOCK.AIR);
+      }
+    }
+  }
+  // 壁 (レンガ + 原木柱 + ガラス窓)
+  for (let x = -3; x <= 3; x++) {
+    for (let z = -3; z <= 3; z++) {
+      const isEdge = (x === -3 || x === 3 || z === -3 || z === 3);
+      const isCorner = (Math.abs(x) === 3 && Math.abs(z) === 3);
+      if (isEdge) {
+        for (let y = 1; y <= 3; y++) {
+          const by = houseGround + y;
+          if (isCorner) {
+            world.setBlock(x, by, z, BLOCK.WOOD);
+          } else if ((x === 0 && z === 3 && y <= 2)) {
+            // ドア口 (開けておく)
+            world.setBlock(x, by, z, BLOCK.AIR);
+          } else if (y === 2 && (Math.abs(x) === 1 || Math.abs(z) === 1)) {
+            // ガラス窓
+            world.setBlock(x, by, z, BLOCK.GLASS);
+          } else {
+            world.setBlock(x, by, z, BLOCK.BRICKS);
+          }
+        }
+      }
+    }
+  }
+  // 屋根 (木材)
+  for (let x = -3; x <= 3; x++) {
+    for (let z = -3; z <= 3; z++) {
+      world.setBlock(x, houseGround + 4, z, BLOCK.PLANKS);
+    }
+  }
+  // 内部インテリア (本棚 & 天井のグロウストーン)
+  world.setBlock(-2, houseGround + 1, -2, BLOCK.BOOKSHELF);
+  world.setBlock(-2, houseGround + 2, -2, BLOCK.BOOKSHELF);
+  world.setBlock(2, houseGround + 1, -2, BLOCK.BOOKSHELF);
+  world.setBlock(0, houseGround + 4, 0, BLOCK.GLOWSTONE); // 照明
+}
+
+/* 6面の幾何学データ定義 (法線, 頂点, 陰影係数) */
+const FACES = [
+  { // 0: +X (Right)
+    dir: [1, 0, 0],
+    corners: [ [1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1] ],
+    slotKey: 'side',
+    shade: 0.82
+  },
+  { // 1: -X (Left)
+    dir: [-1, 0, 0],
+    corners: [ [0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0] ],
+    slotKey: 'side',
+    shade: 0.82
+  },
+  { // 2: +Y (Top)
+    dir: [0, 1, 0],
+    corners: [ [0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0] ],
+    slotKey: 'top',
+    shade: 1.0
+  },
+  { // 3: -Y (Bottom)
+    dir: [0, -1, 0],
+    corners: [ [0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1] ],
+    slotKey: 'bottom',
+    shade: 0.55
+  },
+  { // 4: +Z (Front)
+    dir: [0, 0, 1],
+    corners: [ [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1] ],
+    slotKey: 'side',
+    shade: 0.72
+  },
+  { // 5: -Z (Back)
+    dir: [0, 0, -1],
+    corners: [ [1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0] ],
+    slotKey: 'side',
+    shade: 0.72
+  }
+];
+
+function getBlockSlot(info, slotKey) {
+  if (info.all !== undefined) return info.all;
+  return info[slotKey] !== undefined ? info[slotKey] : (info.side || 0);
+}
+
+/* 高速面カリング・メッシュビルダー (不透明と半透明の2メッシュ構成) */
+let solidMesh = null;
+let transparentMesh = null;
+let totalBlockCount = 0;
+
+function buildWorldMesh(scene) {
+  const solidPos = [], solidNorm = [], solidUv = [], solidCol = [];
+  const transPos = [], transNorm = [], transUv = [], transCol = [];
+
+  let count = 0;
+
+  for (let y = 0; y < WORLD_Y; y++) {
+    for (let z = -HALF_Z; z < HALF_Z; z++) {
+      for (let x = -HALF_X; x < HALF_X; x++) {
+        const id = world.getBlock(x, y, z);
+        if (id === BLOCK.AIR) continue;
+        count++;
+
+        const info = BLOCK_INFO[id];
+        const isTrans = info.transparent;
+        const pArr = isTrans ? transPos : solidPos;
+        const nArr = isTrans ? transNorm : solidNorm;
+        const uArr = isTrans ? transUv : solidUv;
+        const cArr = isTrans ? transCol : solidCol;
+
+        for (let f = 0; f < 6; f++) {
+          const face = FACES[f];
+          const nx = x + face.dir[0];
+          const ny = y + face.dir[1];
+          const nz = z + face.dir[2];
+
+          const neighborId = world.getBlock(nx, ny, nz);
+          // 隣が空気、または自身が不透明で隣が半透明のときに面を描画
+          let shouldDraw = false;
+          if (neighborId === BLOCK.AIR) {
+            shouldDraw = true;
+          } else if (!isTrans && world.isTransparent(neighborId)) {
+            shouldDraw = true;
+          } else if (isTrans && neighborId !== id && world.isTransparent(neighborId)) {
+            shouldDraw = true;
+          }
+
+          if (shouldDraw) {
+            const slot = getBlockSlot(info, face.slotKey);
+            const uv = getUVs(slot);
+            const corners = face.corners;
+            const shade = face.shade;
+
+            // 2つの三角形 (6頂点: 0, 1, 2, 0, 2, 3)
+            const indices = [0, 1, 2, 0, 2, 3];
+            const uvCoords = [
+              [uv.u0, uv.v0],
+              [uv.u1, uv.v0],
+              [uv.u1, uv.v1],
+              [uv.u0, uv.v1]
+            ];
+
+            for (let i = 0; i < 6; i++) {
+              const idx = indices[i];
+              const c = corners[idx];
+              pArr.push(x + c[0], y + c[1], z + c[2]);
+              nArr.push(face.dir[0], face.dir[1], face.dir[2]);
+              uArr.push(uvCoords[idx][0], uvCoords[idx][1]);
+              cArr.push(shade, shade, shade);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  totalBlockCount = count;
+  document.getElementById('block-count-val').innerText = `Blocks: ${totalBlockCount}`;
+
+  // 不透明メッシュの更新
+  if (solidMesh) {
+    scene.remove(solidMesh);
+    solidMesh.geometry.dispose();
+  }
+  const sGeo = new THREE.BufferGeometry();
+  sGeo.setAttribute('position', new THREE.Float32BufferAttribute(solidPos, 3));
+  sGeo.setAttribute('normal', new THREE.Float32BufferAttribute(solidNorm, 3));
+  sGeo.setAttribute('uv', new THREE.Float32BufferAttribute(solidUv, 2));
+  sGeo.setAttribute('color', new THREE.Float32BufferAttribute(solidCol, 3));
+  const sMat = new THREE.MeshLambertMaterial({
+    map: atlasTexture,
+    vertexColors: true
+  });
+  solidMesh = new THREE.Mesh(sGeo, sMat);
+  scene.add(solidMesh);
+
+  // 半透明メッシュ (Leaves, Glass) の更新
+  if (transparentMesh) {
+    scene.remove(transparentMesh);
+    transparentMesh.geometry.dispose();
+  }
+  if (transPos.length > 0) {
+    const tGeo = new THREE.BufferGeometry();
+    tGeo.setAttribute('position', new THREE.Float32BufferAttribute(transPos, 3));
+    tGeo.setAttribute('normal', new THREE.Float32BufferAttribute(transNorm, 3));
+    tGeo.setAttribute('uv', new THREE.Float32BufferAttribute(transUv, 2));
+    tGeo.setAttribute('color', new THREE.Float32BufferAttribute(transCol, 3));
+    const tMat = new THREE.MeshLambertMaterial({
+      map: atlasTexture,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.85,
+      alphaTest: 0.15,
+      side: THREE.DoubleSide
+    });
+    transparentMesh = new THREE.Mesh(tGeo, tMat);
+    scene.add(transparentMesh);
+  }
+}
+
+/* =========================================================================
+   4. パーティクルシステム (ブロック破壊演出)
+   ========================================================================= */
+class ParticleSystem {
+  constructor(scene) {
+    this.scene = scene;
+    this.particles = [];
+    this.geo = new THREE.BoxGeometry(0.12, 0.12, 0.12);
+  }
+  spawn(x, y, z, blockId) {
+    const info = BLOCK_INFO[blockId] || {};
+    const slot = info.side || info.all || 0;
+    const uv = getUVs(slot);
+    // テクスチャ中央付近の簡易カラーサンプリング
+    const color = (blockId === BLOCK.GRASS) ? 0x5b8f32 :
+                  (blockId === BLOCK.DIRT) ? 0x866043 :
+                  (blockId === BLOCK.STONE || blockId === BLOCK.COBBLESTONE) ? 0x797979 :
+                  (blockId === BLOCK.WOOD) ? 0x6b5232 :
+                  (blockId === BLOCK.LEAVES) ? 0x326b21 :
+                  (blockId === BLOCK.BRICKS) ? 0x944436 :
+                  (blockId === BLOCK.SAND) ? 0xd9cb9e : 0xffffff;
+
+    const mat = new THREE.MeshBasicMaterial({ color });
+    const count = 12;
+
+    for (let i = 0; i < count; i++) {
+      const pMesh = new THREE.Mesh(this.geo, mat);
+      pMesh.position.set(
+        x + 0.5 + (Math.random() - 0.5) * 0.6,
+        y + 0.5 + (Math.random() - 0.5) * 0.6,
+        z + 0.5 + (Math.random() - 0.5) * 0.6
+      );
+      this.scene.add(pMesh);
+      this.particles.push({
+        mesh: pMesh,
+        vx: (Math.random() - 0.5) * 4,
+        vy: Math.random() * 4 + 1.5,
+        vz: (Math.random() - 0.5) * 4,
+        life: 0.6,
+        maxLife: 0.6
+      });
+    }
+  }
+  update(dt) {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.life -= dt;
+      if (p.life <= 0) {
+        this.scene.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        this.particles.splice(i, 1);
+        continue;
+      }
+      p.vy -= 18 * dt; // 重力
+      p.mesh.position.x += p.vx * dt;
+      p.mesh.position.y += p.vy * dt;
+      p.mesh.position.z += p.vz * dt;
+      const scale = p.life / p.maxLife;
+      p.mesh.scale.set(scale, scale, scale);
+    }
+  }
+}
+
+/* =========================================================================
+   5. 物理エンジン & プレイヤーコントローラー
+   ========================================================================= */
+class PlayerController {
+  constructor(camera, domElement, scene) {
+    this.camera = camera;
+    this.domElement = domElement;
+    this.scene = scene;
+
+    // プレイヤー位置と物理状態
+    this.position = new THREE.Vector3(0, 16, 8);
+    this.velocity = new THREE.Vector3(0, 0, 0);
+    this.yaw = 0;
+    this.pitch = 0;
+    this.onGround = false;
+    this.flying = false;
+
+    // 物理パラメータ
+    this.radius = 0.3;
+    this.height = 1.8;
+    this.eyeHeight = 1.62;
+    this.walkSpeed = 5.0;
+    this.runSpeed = 8.5;
+    this.flySpeed = 14.0;
+    this.jumpSpeed = 8.8;
+    this.gravity = 26.0;
+
+    // キー入力状態
+    this.keys = { forward: false, backward: false, left: false, right: false, jump: false, sneak: false };
+    this.stepDistance = 0;
+
+    // ブロック選択枠線ボックス (Raycast Highlight)
+    const boxGeo = new THREE.BoxGeometry(1.004, 1.004, 1.004);
+    const wireGeo = new THREE.EdgesGeometry(boxGeo);
+    this.highlightBox = new THREE.LineSegments(
+      wireGeo,
+      new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 })
+    );
+    this.highlightBox.visible = false;
+    scene.add(this.highlightBox);
+
+    this.targetedBlock = null;
+
+    this.setupListeners();
+  }
+
+  setupListeners() {
+    window.addEventListener('keydown', (e) => {
+      switch (e.code) {
+        case 'KeyW': case 'ArrowUp': this.keys.forward = true; break;
+        case 'KeyS': case 'ArrowDown': this.keys.backward = true; break;
+        case 'KeyA': case 'ArrowLeft': this.keys.left = true; break;
+        case 'KeyD': case 'ArrowRight': this.keys.right = true; break;
+        case 'Space': this.keys.jump = true; break;
+        case 'ShiftLeft': case 'ShiftRight': this.keys.sneak = true; break;
+        case 'KeyF':
+          this.toggleFly();
+          break;
+        case 'KeyT':
+          cycleTimeOfDay();
+          break;
+      }
+      // 数字キー 1〜9 でホットバー切替
+      if (e.key >= '1' && e.key <= '9') {
+        selectHotbarSlot(parseInt(e.key, 10) - 1);
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      switch (e.code) {
+        case 'KeyW': case 'ArrowUp': this.keys.forward = false; break;
+        case 'KeyS': case 'ArrowDown': this.keys.backward = false; break;
+        case 'KeyA': case 'ArrowLeft': this.keys.left = false; break;
+        case 'KeyD': case 'ArrowRight': this.keys.right = false; break;
+        case 'Space': this.keys.jump = false; break;
+        case 'ShiftLeft': case 'ShiftRight': this.keys.sneak = false; break;
+      }
+    });
+
+    // マウス視点移動 (Pointer Lock)
+    document.addEventListener('mousemove', (e) => {
+      if (document.pointerLockElement !== this.domElement) return;
+      const sens = 0.0022;
+      this.yaw -= e.movementX * sens;
+      this.pitch -= e.movementY * sens;
+      // ピッチを上下89°に制限
+      this.pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.pitch));
+    });
+
+    // マウスホイールでホットバー選択
+    window.addEventListener('wheel', (e) => {
+      if (document.pointerLockElement === this.domElement) {
+        if (e.deltaY > 0) {
+          selectHotbarSlot((activeSlotIndex + 1) % HOTBAR_BLOCKS.length);
+        } else if (e.deltaY < 0) {
+          selectHotbarSlot((activeSlotIndex - 1 + HOTBAR_BLOCKS.length) % HOTBAR_BLOCKS.length);
+        }
+      }
+    });
+
+    // マウスクリック (左: 破壊, 右: 設置)
+    window.addEventListener('mousedown', (e) => {
+      if (document.pointerLockElement !== this.domElement) return;
+      if (e.button === 0) {
+        this.breakTargetedBlock();
+      } else if (e.button === 2) {
+        this.placeTargetedBlock();
+      }
+    });
+
+    // 右クリックのコンテキストメニュー禁止
+    window.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  toggleFly() {
+    this.flying = !this.flying;
+    this.velocity.set(0, 0, 0);
+    const badge = document.getElementById('hud-badge');
+    badge.innerText = `FLY: ${this.flying ? 'ON' : 'OFF'}`;
+    badge.style.background = this.flying ? '#e91e63' : '#39b54a';
+  }
+
+  /* 視線方向からのレイキャスト (最大6ブロック) */
+  updateRaycast() {
+    const origin = this.camera.position.clone();
+    const dir = new THREE.Vector3();
+    this.camera.getWorldDirection(dir);
+
+    // Three.js Raycaster を使用して高速判定
+    const raycaster = new THREE.Raycaster(origin, dir, 0.1, 7.0);
+    const targets = [];
+    if (solidMesh) targets.push(solidMesh);
+    if (transparentMesh) targets.push(transparentMesh);
+
+    const intersects = raycaster.intersectObjects(targets);
+
+    if (intersects.length > 0) {
+      const hit = intersects[0];
+      // 当たった面の内側へ微小オフセットしてブロックの整数座標を取得
+      const inner = hit.point.clone().addScaledVector(hit.face.normal, -0.01);
+      const bx = Math.floor(inner.x);
+      const by = Math.floor(inner.y);
+      const bz = Math.floor(inner.z);
+
+      const hitNormal = hit.face.normal.clone().round();
+
+      this.targetedBlock = {
+        x: bx,
+        y: by,
+        z: bz,
+        normal: hitNormal
+      };
+
+      this.highlightBox.position.set(bx + 0.5, by + 0.5, bz + 0.5);
+      this.highlightBox.visible = true;
+    } else {
+      this.targetedBlock = null;
+      this.highlightBox.visible = false;
+    }
+  }
+
+  breakTargetedBlock() {
+    if (!this.targetedBlock) return;
+    const { x, y, z } = this.targetedBlock;
+    const curId = world.getBlock(x, y, z);
+    if (curId === BLOCK.AIR) return;
+
+    sound.playBreak(curId);
+    particles.spawn(x, y, z, curId);
+    world.setBlock(x, y, z, BLOCK.AIR);
+    buildWorldMesh(this.scene);
+    this.updateRaycast();
+  }
+
+  placeTargetedBlock() {
+    if (!this.targetedBlock) return;
+    const { x, y, z, normal } = this.targetedBlock;
+    const nx = x + normal.x;
+    const ny = y + normal.y;
+    const nz = z + normal.z;
+
+    // ワールド範囲内か確認
+    if (ny < 0 || ny >= WORLD_Y) return;
+
+    // プレイヤーのAABBと重なる位置への設置は禁止 (埋まり防止)
+    const blockMin = new THREE.Vector3(nx, ny, nz);
+    const blockMax = new THREE.Vector3(nx + 1, ny + 1, nz + 1);
+    const playerMin = new THREE.Vector3(
+      this.position.x - this.radius,
+      this.position.y,
+      this.position.z - this.radius
+    );
+    const playerMax = new THREE.Vector3(
+      this.position.x + this.radius,
+      this.position.y + this.height,
+      this.position.z + this.radius
+    );
+
+    const overlap = (
+      playerMin.x < blockMax.x && playerMax.x > blockMin.x &&
+      playerMin.y < blockMax.y && playerMax.y > blockMin.y &&
+      playerMin.z < blockMax.z && playerMax.z > blockMin.z
+    );
+
+    if (overlap) return;
+
+    const placeId = HOTBAR_BLOCKS[activeSlotIndex];
+    world.setBlock(nx, ny, nz, placeId);
+    sound.playPlace();
+    buildWorldMesh(this.scene);
+    this.updateRaycast();
+  }
+
+  /* 物理更新 & AABB当たり判定 */
+  update(dt) {
+    // 1. 移動入力の計算
+    const forward = (this.keys.forward ? 1 : 0) - (this.keys.backward ? 1 : 0);
+    const side = (this.keys.right ? 1 : 0) - (this.keys.left ? 1 : 0);
+
+    const sin = Math.sin(this.yaw);
+    const cos = Math.cos(this.yaw);
+
+    const isRunning = this.keys.sneak && !this.flying;
+    const currentSpeed = this.flying ? this.flySpeed : (isRunning ? this.runSpeed : this.walkSpeed);
+
+    let moveX = 0;
+    let moveZ = 0;
+    if (forward !== 0 || side !== 0) {
+      const len = Math.sqrt(forward * forward + side * side);
+      const fx = (side / len) * cos - (forward / len) * sin;
+      const fz = (-side / len) * sin - (forward / len) * cos;
+      moveX = fx * currentSpeed;
+      moveZ = fz * currentSpeed;
+    }
+
+    if (this.flying) {
+      // 飛行モード
+      let moveY = 0;
+      if (this.keys.jump) moveY += this.flySpeed;
+      if (this.keys.sneak) moveY -= this.flySpeed;
+      this.position.x += moveX * dt;
+      this.position.y += moveY * dt;
+      this.position.z += moveZ * dt;
+    } else {
+      // 通常歩行・重力・衝突判定
+      this.velocity.x = moveX;
+      this.velocity.z = moveZ;
+
+      // ジャンプ
+      if (this.keys.jump && this.onGround) {
+        this.velocity.y = this.jumpSpeed;
+        this.onGround = false;
+        sound.playJump();
+      }
+
+      // 重力適用
+      this.velocity.y -= this.gravity * dt;
+      this.velocity.y = Math.max(this.velocity.y, -40); // 終端速度
+
+      // 3軸分離AABB衝突解決
+      this.resolveCollisions(dt);
+
+      // 足音
+      if (this.onGround && (moveX !== 0 || moveZ !== 0)) {
+        this.stepDistance += Math.sqrt(moveX * moveX + moveZ * moveZ) * dt;
+        if (this.stepDistance > 2.2) {
+          sound.playStep();
+          this.stepDistance = 0;
+        }
+      }
+    }
+
+    // 奈落へ落下した場合のセーフティリスポーン
+    if (this.position.y < -15) {
+      this.position.set(0, 18, 8);
+      this.velocity.set(0, 0, 0);
+    }
+
+    // カメラ位置・回転の更新
+    this.camera.position.set(
+      this.position.x,
+      this.position.y + this.eyeHeight,
+      this.position.z
+    );
+    this.camera.rotation.set(0, 0, 0);
+    this.camera.rotation.y = this.yaw;
+    this.camera.rotation.x = this.pitch;
+    this.camera.rotation.order = 'YXZ';
+
+    this.updateRaycast();
+  }
+
+  /* AABBとボクセルの当たり判定 */
+  resolveCollisions(dt) {
+    const r = this.radius;
+    const h = this.height;
+
+    // --- Y軸移動と衝突 ---
+    this.position.y += this.velocity.y * dt;
+    this.onGround = false;
+
+    const minY = Math.floor(this.position.y);
+    const maxY = Math.floor(this.position.y + h);
+    const minX = Math.floor(this.position.x - r);
+    const maxX = Math.floor(this.position.x + r);
+    const minZ = Math.floor(this.position.z - r);
+    const maxZ = Math.floor(this.position.z + r);
+
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        for (let z = minZ; z <= maxZ; z++) {
+          if (world.isSolid(x, y, z)) {
+            if (this.velocity.y < 0) { // 下降中 (着地)
+              this.position.y = y + 1.0;
+              this.velocity.y = 0;
+              this.onGround = true;
+            } else if (this.velocity.y > 0) { // 上昇中 (天井激突)
+              this.position.y = y - h;
+              this.velocity.y = 0;
+            }
+          }
+        }
+      }
+    }
+
+    // --- X軸移動と衝突 ---
+    this.position.x += this.velocity.x * dt;
+    const minX2 = Math.floor(this.position.x - r);
+    const maxX2 = Math.floor(this.position.x + r);
+    const minY2 = Math.floor(this.position.y + 0.05);
+    const maxY2 = Math.floor(this.position.y + h - 0.05);
+
+    for (let y = minY2; y <= maxY2; y++) {
+      for (let x = minX2; x <= maxX2; x++) {
+        for (let z = minZ; z <= maxZ; z++) {
+          if (world.isSolid(x, y, z)) {
+            if (this.velocity.x > 0) {
+              this.position.x = x - r;
+            } else if (this.velocity.x < 0) {
+              this.position.x = x + 1.0 + r;
+            }
+          }
+        }
+      }
+    }
+
+    // --- Z軸移動と衝突 ---
+    this.position.z += this.velocity.z * dt;
+    const minZ3 = Math.floor(this.position.z - r);
+    const maxZ3 = Math.floor(this.position.z + r);
+    const minX3 = Math.floor(this.position.x - r);
+    const maxX3 = Math.floor(this.position.x + r);
+
+    for (let y = minY2; y <= maxY2; y++) {
+      for (let x = minX3; x <= maxX3; x++) {
+        for (let z = minZ3; z <= maxZ3; z++) {
+          if (world.isSolid(x, y, z)) {
+            if (this.velocity.z > 0) {
+              this.position.z = z - r;
+            } else if (this.velocity.z < 0) {
+              this.position.z = z + 1.0 + r;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/* =========================================================================
+   6. 昼夜サイクル & ライティング
+   ========================================================================= */
+let skyTime = 0.25; // 0.0: 正午, 0.25: 夕方, 0.5: 深夜, 0.75: 朝方
+let dirLight, hemiLight, ambientLight;
+
+function setupLighting(scene) {
+  ambientLight = new THREE.AmbientLight(0xffffff, 0.45);
+  scene.add(ambientLight);
+
+  hemiLight = new THREE.HemisphereLight(0x73a8d8, 0x543d2b, 0.35);
+  scene.add(hemiLight);
+
+  dirLight = new THREE.DirectionalLight(0xfffaed, 0.85);
+  dirLight.position.set(50, 100, 30);
+  scene.add(dirLight);
+
+  // フォグ (遠景の霞み)
+  scene.fog = new THREE.FogExp2(0x87ceeb, 0.016);
+}
+
+function updateSkyAndLights(renderer, scene, dt) {
+  skyTime = (skyTime + dt * 0.006) % 1.0;
+  const angle = skyTime * Math.PI * 2;
+
+  // 太陽と月の回転
+  dirLight.position.x = Math.cos(angle) * 80;
+  dirLight.position.y = Math.sin(angle) * 80;
+  dirLight.position.z = Math.sin(angle * 0.5) * 40;
+
+  const sunHeight = Math.sin(angle);
+  let skyColor, fogColor, lightIntensity;
+
+  if (sunHeight > 0.2) {
+    // 昼 (爽快な青空)
+    skyColor = new THREE.Color(0x78a7ff);
+    fogColor = new THREE.Color(0x90b8ff);
+    lightIntensity = 0.9;
+  } else if (sunHeight > -0.1) {
+    // 夕暮れ・夜明け (オレンジ)
+    skyColor = new THREE.Color(0xd46837);
+    fogColor = new THREE.Color(0xe08b5c);
+    lightIntensity = 0.5;
+  } else {
+    // 夜 (星空・月明かり)
+    skyColor = new THREE.Color(0x0a0e1a);
+    fogColor = new THREE.Color(0x0e1322);
+    lightIntensity = 0.15;
+  }
+
+  renderer.setClearColor(skyColor);
+  scene.fog.color = fogColor;
+  dirLight.intensity = lightIntensity;
+  ambientLight.intensity = Math.max(0.18, lightIntensity * 0.5);
+}
+
+function cycleTimeOfDay() {
+  skyTime = (skyTime + 0.25) % 1.0;
+}
+
+/* =========================================================================
+   7. UI & ホットバーの構築
+   ========================================================================= */
+let activeSlotIndex = 0;
+
+function createHotbar() {
+  const hotbarEl = document.getElementById('hotbar');
+  hotbarEl.innerHTML = '';
+
+  HOTBAR_BLOCKS.forEach((blockId, idx) => {
+    const slot = document.createElement('div');
+    slot.className = `slot ${idx === activeSlotIndex ? 'active' : ''}`;
+    slot.id = `slot-${idx}`;
+
+    const num = document.createElement('div');
+    num.className = 'slot-num';
+    num.innerText = idx + 1 <= 9 ? idx + 1 : '';
+    slot.appendChild(num);
+
+    // ミニブロックアイコンをCanvasで描画
+    const icon = document.createElement('canvas');
+    icon.width = 16;
+    icon.height = 16;
+    const ictx = icon.getContext('2d');
+
+    const info = BLOCK_INFO[blockId];
+    const topSlot = info.top !== undefined ? info.top : (info.all || 0);
+    const ox = (topSlot % 4) * TILE_SIZE;
+    const oy = Math.floor(topSlot / 4) * TILE_SIZE;
+    ictx.drawImage(atlasCanvas, ox, oy, TILE_SIZE, TILE_SIZE, 0, 0, 16, 16);
+
+    slot.appendChild(icon);
+
+    slot.addEventListener('click', () => {
+      selectHotbarSlot(idx);
+    });
+
+    hotbarEl.appendChild(slot);
+  });
+
+  updateSelectedLabel();
+}
+
+function selectHotbarSlot(index) {
+  if (index < 0 || index >= HOTBAR_BLOCKS.length) return;
+  activeSlotIndex = index;
+  document.querySelectorAll('.slot').forEach((el, i) => {
+    el.classList.toggle('active', i === activeSlotIndex);
+  });
+  updateSelectedLabel();
+}
+
+let nameTimeout = null;
+function updateSelectedLabel() {
+  const nameEl = document.getElementById('selected-name');
+  const blockId = HOTBAR_BLOCKS[activeSlotIndex];
+  const info = BLOCK_INFO[blockId];
+  nameEl.innerText = info.name;
+  nameEl.style.opacity = '1';
+
+  clearTimeout(nameTimeout);
+  nameTimeout = setTimeout(() => {
+    nameEl.style.opacity = '0';
+  }, 1800);
+}
+
+/* =========================================================================
+   8. メイン初期化 & ゲームループ
+   ========================================================================= */
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 120);
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+container.appendChild(renderer.domElement);
+
+setupLighting(scene);
+generateWorld();
+buildWorldMesh(scene);
+
+const particles = new ParticleSystem(scene);
+const player = new PlayerController(camera, renderer.domElement, scene);
+
+createHotbar();
+
+// リサイズ対応
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ポインターロック (クリックしてプレイ開始)
+const overlay = document.getElementById('overlay');
+const startBtn = document.getElementById('start-btn');
+
+function startGame() {
+  sound.init();
+  renderer.domElement.requestPointerLock();
+}
+
+startBtn.addEventListener('click', startGame);
+
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement === renderer.domElement) {
+    overlay.style.display = 'none';
+  } else {
+    overlay.style.display = 'flex';
+    startBtn.innerText = 'ゲームを再開 (Resume)';
+  }
+});
+
+// モバイルタッチ操作対応
+if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+  document.getElementById('mobile-controls').style.display = 'block';
+
+  // バーチャルスティック
+  const stick = document.getElementById('touch-stick');
+  const knob = document.getElementById('touch-knob');
+  let stickTouchId = null;
+  let stickOrigin = { x: 0, y: 0 };
+
+  stick.addEventListener('touchstart', (e) => {
+    const t = e.changedTouches[0];
+    stickTouchId = t.identifier;
+    const rect = stick.getBoundingClientRect();
+    stickOrigin = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+
+  window.addEventListener('touchmove', (e) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier === stickTouchId) {
+        const dx = t.clientX - stickOrigin.x;
+        const dy = t.clientY - stickOrigin.y;
+        const dist = Math.min(35, Math.hypot(dx, dy));
+        const angle = Math.atan2(dy, dx);
+        knob.style.transform = `translate(${Math.cos(angle)*dist}px, ${Math.sin(angle)*dist}px)`;
+
+        player.keys.forward = dy < -10;
+        player.keys.backward = dy > 10;
+        player.keys.left = dx < -10;
+        player.keys.right = dx > 10;
+      }
+    }
+  });
+
+  const endStick = (e) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === stickTouchId) {
+        stickTouchId = null;
+        knob.style.transform = 'translate(0px, 0px)';
+        player.keys.forward = false;
+        player.keys.backward = false;
+        player.keys.left = false;
+        player.keys.right = false;
+      }
+    }
+  };
+  window.addEventListener('touchend', endStick);
+  window.addEventListener('touchcancel', endStick);
+
+  // アクションボタン
+  document.getElementById('touch-jump').addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    player.keys.jump = true;
+  });
+  document.getElementById('touch-jump').addEventListener('touchend', () => player.keys.jump = false);
+
+  document.getElementById('touch-break').addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    player.breakTargetedBlock();
+  });
+  document.getElementById('touch-place').addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    player.placeTargetedBlock();
+  });
+  document.getElementById('touch-fly').addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    player.toggleFly();
+  });
+}
+
+// ループとFPS計測
+let lastTime = performance.now();
+let frames = 0;
+let lastFpsUpdate = performance.now();
+const fpsVal = document.getElementById('fps-val');
+const posVal = document.getElementById('pos-val');
+const lookVal = document.getElementById('look-val');
+
+function animate(currentTime) {
+  requestAnimationFrame(animate);
+
+  const dt = Math.min((currentTime - lastTime) / 1000, 0.1);
+  lastTime = currentTime;
+
+  // FPS計測
+  frames++;
+  if (currentTime - lastFpsUpdate > 500) {
+    const fps = Math.round((frames * 1000) / (currentTime - lastFpsUpdate));
+    fpsVal.innerText = `FPS: ${fps}`;
+    frames = 0;
+    lastFpsUpdate = currentTime;
+  }
+
+  // プレイヤー & 物理更新
+  player.update(dt);
+  particles.update(dt);
+  updateSkyAndLights(renderer, scene, dt);
+
+  // デバッグHUD更新
+  posVal.innerText = `XYZ: ${player.position.x.toFixed(1)} / ${player.position.y.toFixed(1)} / ${player.position.z.toFixed(1)}`;
+  const facingAngles = ['South', 'West', 'North', 'East'];
+  const faceIdx = Math.floor(((player.yaw % (Math.PI * 2)) + Math.PI * 2 + Math.PI / 4) / (Math.PI / 2)) % 4;
+  lookVal.innerText = `Looking: ${facingAngles[faceIdx]}`;
+
+  renderer.render(scene, camera);
+}
+
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
